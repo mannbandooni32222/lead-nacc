@@ -20,11 +20,11 @@ SOCIAL_DOMAINS = [
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0"
 }
 
 # -------------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # -------------------------------
 def extract_username(url):
     try:
@@ -34,7 +34,7 @@ def extract_username(url):
         return ""
 
 def scrape_page(url):
-    data = []
+    results = []
 
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
@@ -47,32 +47,40 @@ def scrape_page(url):
 
         links = [a.get("href") for a in soup.find_all("a", href=True)]
 
+        social_links = []
+        usernames = []
+
         for link in links:
             full_link = urljoin(url, link)
 
-            entry = {
-                "Website": url,
-                "Email": ", ".join(emails),
-                "Phone": ", ".join(phones),
-                "Social Link": "",
-                "Username": ""
-            }
-
             if any(domain in full_link for domain in SOCIAL_DOMAINS):
-                entry["Social Link"] = full_link
-                entry["Username"] = extract_username(full_link)
+                social_links.append(full_link)
+                usernames.append(extract_username(full_link))
 
-            data.append(entry)
-
-        return data
+        results.append({
+            "Website": url,
+            "Emails": ", ".join(emails),
+            "Phones": ", ".join(phones),
+            "Social Links": ", ".join(set(social_links)),
+            "Usernames": ", ".join(set(usernames))
+        })
 
     except Exception as e:
-        return [{"Website": url, "Error": str(e)}]
+        results.append({
+            "Website": url,
+            "Emails": "",
+            "Phones": "",
+            "Social Links": "",
+            "Usernames": "",
+            "Error": str(e)
+        })
 
-def crawl_website(start_url, max_pages=5):
+    return results
+
+def crawl_website(start_url, max_pages=3):
     visited = set()
     to_visit = [start_url]
-    all_data = []
+    collected = []
 
     while to_visit and len(visited) < max_pages:
         url = to_visit.pop(0)
@@ -82,8 +90,7 @@ def crawl_website(start_url, max_pages=5):
 
         visited.add(url)
 
-        page_data = scrape_page(url)
-        all_data.extend(page_data)
+        collected.extend(scrape_page(url))
 
         try:
             response = requests.get(url, headers=HEADERS, timeout=10)
@@ -99,45 +106,58 @@ def crawl_website(start_url, max_pages=5):
         except:
             continue
 
-    return all_data
+    return collected
+
+def bulk_scrape(url_list, max_pages):
+    all_results = []
+
+    for url in url_list:
+        all_results.extend(crawl_website(url.strip(), max_pages))
+
+    return all_results
 
 # -------------------------------
 # STREAMLIT UI
 # -------------------------------
-st.set_page_config(page_title="Web Scraper", layout="wide")
+st.set_page_config(page_title="Bulk Web Scraper", layout="wide")
 
-st.title("🌐 Web Scraper App")
+st.title("🌐 Bulk Website Scraper")
 
-url = st.text_input("Enter Website URL")
-max_pages = st.slider("Number of pages to crawl", 1, 20, 5)
+st.markdown("Enter multiple URLs (one per line):")
 
-if st.button("Start Scraping"):
-    if url:
-        with st.spinner("Scraping in progress..."):
-            data = crawl_website(url, max_pages)
+url_input = st.text_area("Website URLs")
+
+max_pages = st.slider("Pages per website", 1, 10, 3)
+
+if st.button("Start Bulk Scraping"):
+    if url_input.strip():
+        urls = url_input.split("\n")
+
+        with st.spinner("Scraping multiple websites..."):
+            data = bulk_scrape(urls, max_pages)
 
             if data:
                 df = pd.DataFrame(data)
 
-                # Clean + remove duplicates
+                # Clean + deduplicate
                 df = df.fillna("")
                 df = df.drop_duplicates()
 
-                st.success("Scraping Completed ✅")
+                st.success("Bulk Scraping Completed ✅")
 
                 st.dataframe(df, use_container_width=True)
 
-                # CSV download
+                # CSV Download
                 csv = df.to_csv(index=False).encode("utf-8")
 
                 st.download_button(
                     label="📥 Download CSV",
                     data=csv,
-                    file_name="scraped_data.csv",
+                    file_name="bulk_scraped_data.csv",
                     mime="text/csv"
                 )
             else:
                 st.warning("No data found.")
 
     else:
-        st.error("Please enter a valid URL")
+        st.error("Please enter at least one URL")
