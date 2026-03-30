@@ -11,14 +11,6 @@ from urllib.parse import urljoin, urlparse
 EMAIL_REGEX = r"[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+"
 PHONE_REGEX = r"\+?\d[\d\s\-]{8,}\d"
 
-SOCIAL_DOMAINS = [
-    "facebook.com",
-    "instagram.com",
-    "twitter.com",
-    "x.com",
-    "linkedin.com"
-]
-
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
@@ -33,9 +25,20 @@ def extract_username(url):
     except:
         return ""
 
-def scrape_page(url):
-    results = []
+def classify_social_link(link):
+    link_lower = link.lower()
 
+    if "instagram.com" in link_lower:
+        return "Instagram"
+    elif "facebook.com" in link_lower:
+        return "Facebook"
+    elif "twitter.com" in link_lower or "x.com" in link_lower:
+        return "X"
+    elif "linkedin.com" in link_lower:
+        return "LinkedIn"
+    return None
+
+def scrape_page(url):
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -47,35 +50,65 @@ def scrape_page(url):
 
         links = [a.get("href") for a in soup.find_all("a", href=True)]
 
-        social_links = []
-        usernames = []
+        instagram_links = set()
+        facebook_links = set()
+        x_links = set()
+        linkedin_links = set()
+
+        instagram_users = set()
+        facebook_users = set()
+        x_users = set()
+        linkedin_users = set()
 
         for link in links:
             full_link = urljoin(url, link)
+            platform = classify_social_link(full_link)
 
-            if any(domain in full_link for domain in SOCIAL_DOMAINS):
-                social_links.append(full_link)
-                usernames.append(extract_username(full_link))
+            if platform == "Instagram":
+                instagram_links.add(full_link)
+                instagram_users.add(extract_username(full_link))
 
-        results.append({
+            elif platform == "Facebook":
+                facebook_links.add(full_link)
+                facebook_users.add(extract_username(full_link))
+
+            elif platform == "X":
+                x_links.add(full_link)
+                x_users.add(extract_username(full_link))
+
+            elif platform == "LinkedIn":
+                linkedin_links.add(full_link)
+                linkedin_users.add(extract_username(full_link))
+
+        return [{
             "Website": url,
             "Emails": ", ".join(emails),
             "Phones": ", ".join(phones),
-            "Social Links": ", ".join(set(social_links)),
-            "Usernames": ", ".join(set(usernames))
-        })
+
+            "Instagram Links": ", ".join(instagram_links),
+            "Instagram Usernames": ", ".join(instagram_users),
+
+            "Facebook Links": ", ".join(facebook_links),
+            "Facebook Usernames": ", ".join(facebook_users),
+
+            "X Links": ", ".join(x_links),
+            "X Usernames": ", ".join(x_users),
+
+            "LinkedIn Links": ", ".join(linkedin_links),
+            "LinkedIn Usernames": ", ".join(linkedin_users),
+        }]
 
     except Exception as e:
-        results.append({
+        return [{
             "Website": url,
             "Emails": "",
             "Phones": "",
-            "Social Links": "",
-            "Usernames": "",
+            "Instagram Links": "",
+            "Facebook Links": "",
+            "X Links": "",
+            "LinkedIn Links": "",
             "Error": str(e)
-        })
-
-    return results
+        }]
 
 def crawl_website(start_url, max_pages=3):
     visited = set()
@@ -112,7 +145,8 @@ def bulk_scrape(url_list, max_pages):
     all_results = []
 
     for url in url_list:
-        all_results.extend(crawl_website(url.strip(), max_pages))
+        if url.strip():
+            all_results.extend(crawl_website(url.strip(), max_pages))
 
     return all_results
 
@@ -121,7 +155,7 @@ def bulk_scrape(url_list, max_pages):
 # -------------------------------
 st.set_page_config(page_title="Bulk Web Scraper", layout="wide")
 
-st.title("🌐 Bulk Website Scraper")
+st.title("🌐 Bulk Website Scraper (Structured Social Data)")
 
 st.markdown("Enter multiple URLs (one per line):")
 
@@ -158,6 +192,5 @@ if st.button("Start Bulk Scraping"):
                 )
             else:
                 st.warning("No data found.")
-
     else:
         st.error("Please enter at least one URL")
